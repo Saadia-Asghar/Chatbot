@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DonorBridge — Healthcare Resource Chatbot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">DB</div>
+        <div>
+          <div class="brand-title">DonorBridge</div>
+          <div class="brand-subtitle">Healthcare Resource Chatbot</div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <label class="field-label" for="hospital-select">Hospital</label>
+        <select id="hospital-select" class="select"></select>
+
+        <label class="field-label" for="role-select">Your role</label>
+        <select id="role-select" class="select">
+          <option value="Doctor">Doctor</option>
+          <option value="Nurse">Nurse</option>
+          <option value="Coordinator">Coordinator</option>
+          <option value="Admin">Admin</option>
+        </select>
+
+        <button id="new-session-btn" class="ghost-button">New session</button>
+        <div class="session-meta" id="session-meta">No session yet</div>
+      </div>
+
+      <div class="suggestions-card">
+        <div class="suggestions-title">Try asking</div>
+        <ul class="suggestions" id="suggestions"></ul>
+      </div>
+
+      <footer class="sidebar-footer">
+        Schema: DonorBridge ERD &nbsp;·&nbsp; Read-only intents &nbsp;·&nbsp;
+        SQL-injection safe
+      </footer>
+    </aside>
+
+    <!-- Main chat area -->
+    <main class="main">
+      <header class="chat-header">
+        <div>
+          <h1>Healthcare Resource Chatbot</h1>
+          <p class="chat-subtitle">
+            Ask about blood inventory, donors, patients at risk, transplants,
+            requests and matches.
+          </p>
+        </div>
+        <span class="status-pill" id="status-pill">Connecting…</span>
+      </header>
+
+      <section class="messages" id="messages">
+        <!-- empty-state shown until first message -->
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">💬</div>
+          <div class="empty-title">Welcome to DonorBridge</div>
+          <div class="empty-text">
+            Pick a hospital on the left, then ask a question — for example
+            <em>"Why is Hospital 1 at risk?"</em>
+          </div>
+        </div>
+      </section>
+
+      <form class="composer" id="composer">
+        <input
+          id="composer-input"
+          class="composer-input"
+          type="text"
+          placeholder="Ask a question…"
+          autocomplete="off"
+          required
+        />
+        <button class="send-button" type="submit" id="send-btn">
+          <span>Send</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

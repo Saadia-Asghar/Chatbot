@@ -7,7 +7,7 @@ Usage:
 import os
 import sqlite3
 
-DB_PATH = "healthcare.db"
+DB_PATH = "donorbridge.db"
 SCHEMA_PATH = "schema.sql"
 
 

@@ -1,132 +1,169 @@
-# Healthcare Resource Optimization Chatbot
+# DonorBridge — Healthcare Resource Chatbot
 
-A rule-based SQL-interface chatbot for a DBMS course project. No LLM — input
-is matched to an intent via regex, each intent runs a parameterized `SELECT`,
-and the result is wrapped in a clean sentence. Includes an "Explain Why"
-feature that justifies risk alerts with multi-step SQL.
+A rule-based SQL chatbot for the **DonorBridge** healthcare resource
+optimization system. The schema follows the DonorBridge ERD
+([reference](https://github.com/shajiaalianwar55/DonorBridge)).
+No LLM is used: input is matched to an intent via regex, each intent runs
+a parameterized `SELECT` against a 3NF SQLite schema, and the result is
+wrapped in a clean sentence. Every chat turn is logged into the
+`CHAT_SESSION / CHAT_MESSAGE / INTENT_DETECTION / QUERY_EXECUTION_LOG`
+tables that the ERD itself defines.
 
-## Design guarantees
-
-- **No hallucinations** — unmatched input returns a fixed fallback; empty
-  result sets return `"I don't know..."`.
-- **Schema-aware** — only uses tables/columns defined in `schema.sql`.
-- **Read-only** — the DB is opened with `mode=ro`; only predefined `SELECT`
-  statements are executed.
-- **SQL-injection safe** — every parameter is passed via `?` placeholders.
-- **Bounded output** — every listing query uses `LIMIT 10`.
-- **Modular** — add an intent in 3 steps (regex pattern, SQL in
-  `INTENT_TO_SQL`, formatter in `FORMATTERS`).
-
-## Project layout
-
-| File                 | Purpose                                                  |
-|----------------------|----------------------------------------------------------|
-| `schema.sql`         | 3NF `CREATE TABLE` scripts + test data                   |
-| `init_db.py`         | Builds `healthcare.db` from `schema.sql`                 |
-| `chatbot_backend.py` | Intent classifier, query map, formatter, explain_alert   |
-| `app.py`             | Streamlit chat UI                                        |
-| `requirements.txt`   | Python dependencies                                      |
-
-## Schema (3NF)
-
-| Table             | Columns                                                                                 |
-|-------------------|-----------------------------------------------------------------------------------------|
-| `HospitalsTable`  | `HospitalID (PK)`, `Name`, `Location`, `AverageWeeklyUsage`                             |
-| `InventoryTable`  | `InventoryID (PK)`, `HospitalID (FK)`, `BloodType`, `CurrentUnits`, `LastUpdated`       |
-| `PatientsTable`   | `PatientID (PK)`, `HospitalID (FK)`, `Name`, `Condition`, `HemoglobinLevel`, `SurgeryScheduled`, `RiskScore` |
-| `DonorsTable`     | `DonorID (PK)`, `Name`, `BloodType`, `EligibilityStatus`, `Location`                    |
-| `OrganRequests`   | `RequestID (PK)`, `PatientID (FK)`, `OrganType`, `UrgencyScore`, `WaitTime`             |
-
-## Intent map
-
-| Keywords / question type                                   | Intent ID                 | SQL target                                                        |
-|------------------------------------------------------------|---------------------------|-------------------------------------------------------------------|
-| `why`, `explain`, "why is hospital X at risk"              | `EXPLAIN_ALERT`           | multi-step: `HospitalsTable` + `InventoryTable` (weeks of supply) |
-| `low`, `shortage`, `stock`, `inventory`, "how much blood"  | `CHECK_INVENTORY`         | `InventoryTable` filtered by hospital (and optional blood type)   |
-| `priority`, `risk`, `surgery`, `urgent patients`           | `GET_HIGH_RISK_PATIENTS`  | `PatientsTable` where `RiskScore > 7`                             |
-| `transplant`, `waiting list`, `matching`, `next kidney`    | `GET_TRANSPLANT_PRIORITY` | `OrganRequests JOIN PatientsTable` by urgency + wait              |
-| `donor`, `eligible`                                        | `GET_DONORS`              | `DonorsTable` where `EligibilityStatus = 'Eligible'`              |
-
-Unmatched input returns:
-
-> "I'm sorry, I can only provide information about blood inventory, patient
-> risk, transplant priority, or donor eligibility. You can also ask
-> 'Why is Hospital <id> at risk?'."
-
-## Setup
+## Quick start
 
 ```bash
 python -m venv venv
 # Windows PowerShell
 venv\Scripts\Activate.ps1
 # macOS / Linux
-source venv/bin/activate
+# source venv/bin/activate
 
 pip install -r requirements.txt
-python init_db.py
+python init_db.py            # builds donorbridge.db from schema.sql
+python api.py                # http://127.0.0.1:5000/
 ```
 
-## Run
+Then open <http://127.0.0.1:5000/> in your browser.
 
-Terminal chat:
+### Alternative UIs
 
 ```bash
+# Terminal chat
 python chatbot_backend.py
-```
 
-Browser chat UI:
-
-```bash
+# Streamlit chat
 streamlit run app.py
 ```
 
-## "Intelligent" formatting rules
+## Project layout
 
-| Intent                   | Rule                                                                                                                                                |
-|--------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `CHECK_INVENTORY`        | `units < 5` → append `URGENT: Stock is critically low.` `5 ≤ units < 10` → tagged `low` (plan a shipment). `units ≥ 10` → `sufficient`.             |
-| `GET_HIGH_RISK_PATIENTS` | `RiskScore > 8` → tag `High Priority`. Hemoglobin triage: `< 7` → `Critical`; `7–10` → `Urgent`; `> 10` → `Moderate`. Both tags are shown together. |
-| `EXPLAIN_ALERT` / Why    | `Hospital [Name] is at risk because current stock ([Stock]) is less than the average weekly usage ([Usage]).`                                       |
-| Any intent, empty result | `I could not find any relevant data for that request.`                                                                                              |
+| File / folder         | Purpose                                                    |
+|-----------------------|------------------------------------------------------------|
+| `schema.sql`          | DonorBridge-ERD `CREATE TABLE` scripts + seed data         |
+| `init_db.py`          | Builds `donorbridge.db` from `schema.sql`                  |
+| `chatbot_backend.py`  | Intent classifier, SQL templates, formatter, chat logging  |
+| `api.py`              | Flask REST API + serves the static frontend                |
+| `static/`             | Modern HTML/CSS/JS chat UI                                 |
+| `app.py`              | Streamlit chat UI (alternative)                            |
+| `requirements.txt`    | Python dependencies                                        |
 
-## Test cases (seeded data)
+## Schema (matches the DonorBridge ERD)
 
-1. **"What is the inventory for O- blood?"** (Hospital 1, 2 units)
-   → `Only 2 units of O- at City General. URGENT: Stock is critically low. Please prioritize a new shipment.`
-2. **"What is the inventory for O+ blood?"** (Hospital 1, 8 units)
-   → `Inventory for O+ is running low (8 units at City General). Please plan a shipment soon.`
-3. **"What is the inventory for B- blood?"** (Hospital 1, not stocked)
-   → `I could not find any relevant data for that request.`
-4. **"Who are the high-risk patients?"** (Hospital 2)
-   → `Priya Nair [High Priority, Critical] - condition: Thalassemia, Hb 6.8 g/dL, risk 10/10, surgery scheduled.`
-5. **"Who are the high-risk patients with surgery scheduled?"** (Hospital 1)
-   → Asha Patel `[High Priority, Urgent]`, Meera Iyer `[High Priority, Urgent]`, Sanjay Gupta `[Urgent]` (risk 8 → not High Priority).
-6. **"Who should get the next kidney transplant?"**
-   → Meera Iyer (urgency 9, waiting 120 days) as top recipient.
-7. **"Show me eligible donors."**
-   → Ravi Menon (O-), Kiran Das (O+), Vikas Singh (B+).
-8. **"Why is Hospital 1 at risk?"**
-   → `Hospital City General is at risk because current stock (34 units) is less than the average weekly usage (40 units). That is approximately 0.85 weeks of supply. Critically low blood types: …`.
-9. **"Why is Hospital 2 at risk?"**
-   → `Hospital Green Valley Medical is within safe range: … about 2.20 weeks …`.
-10. **"Tell me a joke."**
-    → Fallback message.
+Core entities
 
-## Coursework talking points
+| Table             | Key columns                                                                                                                                       |
+|-------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `HOSPITAL`        | `hospital_id`, `name`, `location`, `contact`                                                                                                       |
+| `PATIENT`         | `patient_id`, `hospital_id`, `full_name`, `age`, `gender`, `blood_group`, `risk_score`, `created_at`                                              |
+| `MEDICAL_RECORD`  | `record_id`, `patient_id`, `diagnosis`, `severity_level`, `stage`, `hemoglobin_level`                                                              |
+| `DONOR`           | `donor_id`, `hospital_id`, `full_name`, `age`, `blood_group`, `donor_type`, `availability_status`, `eligibility_status`, `last_donation_date`     |
+| `REQUEST`         | `request_id`, `patient_id`, `hospital_id`, `request_type`, `urgency_level`, `status`, `request_date`                                              |
+| `BLOOD_REQUEST_DETAILS`  | `request_id (PK,FK)`, `blood_group_required`, `units_required`, `required_by`                                                              |
+| `ORGAN_REQUEST_DETAILS`  | `request_id (PK,FK)`, `organ_type_required`, `max_wait_time_days`, `hla_notes`                                                             |
+| `BLOOD_DONATION`  | `blood_donation_id`, `donor_id`, `donation_date`, `quantity_donated_ml`, `outcome`                                                                 |
+| `BLOOD_UNIT`      | `blood_unit_id`, `blood_donation_id`, `blood_group`, `volume_ml`, `expiry_date`, `unit_status`                                                     |
+| `BLOOD_INVENTORY` | `inventory_id`, `hospital_id`, `blood_group`, `available_units_summary`, `last_updated`                                                            |
+| `ORGAN_OFFER`     | `organ_offer_id`, `donor_id`, `organ_type`, `availability_status`, `retrieval_date`, `medical_clearance`                                          |
+| `MATCH_CANDIDATE` | `match_id`, `request_id`, `match_type`, `blood_unit_id (nullable)`, `organ_offer_id (nullable)`, `compatibility_score`, `priority_level`, `match_status` |
+| `TRANSPLANT`      | `transplant_id`, `match_id`, `transplant_date`, `surgeon_name`, `outcome`                                                                          |
 
-- **Decoupling** — the chatbot is decoupled from the database: intent
-  classification (`INTENT_PATTERNS`) and SQL (`INTENT_TO_SQL`) are separate
-  maps, so adding an intent never requires touching the router.
-- **Rule-based prediction** — threshold-based SQL queries (`RiskScore > 7`,
-  `CurrentUnits < 10`, `CurrentStock < AverageWeeklyUsage`) simulate
-  predictive analytics without ML overhead while remaining auditable.
-- **Safety** — every query is a hard-coded `SELECT` with `?` parameters; the
-  SQLite connection is opened with `mode=ro`, so the chat interface cannot
-  insert, update, or delete data even if a prompt tries to.
+Chatbot subsystem (the chatbot writes to these)
+
+| Table                  | Key columns                                                                            |
+|------------------------|----------------------------------------------------------------------------------------|
+| `CHAT_SESSION`         | `chat_session_id`, `hospital_id`, `user_role`, `started_at`                            |
+| `CHAT_MESSAGE`         | `message_id`, `chat_session_id`, `sender_type`, `message_text`, `created_at`           |
+| `INTENT_DETECTION`     | `intent_id`, `message_id`, `intent_code`, `confidence_score`, `detected_at`            |
+| `SQL_TEMPLATE`         | `template_id`, `intent_code`, `sql_text`, `allowed_params`, `active_flag`              |
+| `QUERY_EXECUTION_LOG`  | `execution_id`, `intent_id`, `template_id`, `param_json`, `execution_status`, `rows_returned`, `executed_at` |
+
+## Intent map
+
+| Keywords / question type                                        | Intent ID                 | SQL target                                              |
+|-----------------------------------------------------------------|---------------------------|---------------------------------------------------------|
+| `why`, `explain`, "why is hospital X at risk"                   | `EXPLAIN_ALERT`           | `BLOOD_INVENTORY` ⋈ `REQUEST` ⋈ `BLOOD_REQUEST_DETAILS` |
+| `low`, `shortage`, `stock`, `inventory`, "how much blood"       | `CHECK_INVENTORY`         | `BLOOD_INVENTORY` (optionally by blood group)           |
+| `priority`, `risk`, `surgery`, `urgent patients`                | `GET_HIGH_RISK_PATIENTS`  | `PATIENT` ⋈ `MEDICAL_RECORD` where `risk_score > 7`     |
+| `transplant`, `waiting list`, `next kidney/liver/heart/lung`    | `GET_TRANSPLANT_PRIORITY` | `REQUEST` ⋈ `ORGAN_REQUEST_DETAILS` ⋈ `PATIENT`         |
+| `donor`, `eligible`                                             | `GET_DONORS`              | `DONOR` where `Eligible` & `Available`                  |
+| `pending`, `open requests`, `unfulfilled`, `requests`           | `GET_PENDING_REQUESTS`    | `REQUEST` where `status = 'Pending'`                    |
+| `match`, `matching`, `candidates`, `compatibility`              | `GET_MATCH_CANDIDATES`    | `MATCH_CANDIDATE` ⋈ `REQUEST` ⋈ `PATIENT`               |
+| `expiring`, `expiry`, `expired`, `near expiry`                  | `GET_EXPIRING_UNITS`      | `BLOOD_UNIT` ordered by `expiry_date`                   |
+| `transplant history`, `past transplants`, `completed transplants`| `GET_TRANSPLANT_HISTORY` | `TRANSPLANT` ⋈ `MATCH_CANDIDATE` ⋈ `REQUEST` ⋈ `PATIENT`|
+
+Unmatched input returns a fixed fallback sentence; empty result sets
+return `"I could not find any relevant data for that request."`.
+
+## "Intelligent" rules layered on top of SQL
+
+| Rule                                              | Behavior                                                                |
+|---------------------------------------------------|-------------------------------------------------------------------------|
+| `available_units_summary < 5`                     | URGENT: stock critically low (per-blood-group)                          |
+| `5 ≤ available_units_summary < 10`                | tagged `low` ("plan a shipment soon")                                   |
+| `risk_score > 8`                                  | patient tagged `High Priority`                                          |
+| `hemoglobin_level < 7`                            | tagged `Critical`                                                       |
+| `7 ≤ hemoglobin_level ≤ 10`                       | tagged `Urgent`                                                         |
+| `hemoglobin_level > 10`                           | tagged `Moderate`                                                       |
+| Pending blood demand > inventory for that group   | hospital flagged AT RISK with the exact gap printed                     |
+
+## Safety guarantees
+
+- **No LLM** — regex keyword matching only.
+- **SQL-injection safe** — every parameter is passed via `?` placeholders.
+- **Bounded output** — every listing query uses `LIMIT 10`.
+- **Hard-coded SELECTs only** — `_assert_select_only()` rejects anything else.
+- **Audit trail** — every turn writes to `CHAT_MESSAGE`, `INTENT_DETECTION`
+  and `QUERY_EXECUTION_LOG`; the chatbot only writes to those tables and
+  to `CHAT_SESSION` (never to operational tables).
+
+## REST API
+
+| Endpoint                      | Method | Purpose                                       |
+|-------------------------------|--------|-----------------------------------------------|
+| `/api/health`                 | GET    | Simple health probe                           |
+| `/api/hospitals`              | GET    | List hospitals for the dropdown               |
+| `/api/intents`                | GET    | Suggested example questions                   |
+| `/api/session`                | POST   | Create a new `CHAT_SESSION`                   |
+| `/api/chat`                   | POST   | Send a message, get the bot reply             |
+| `/api/history/<session_id>`   | GET    | Retrieve a session's full message history     |
+
+`POST /api/chat` example:
+
+```json
+{
+  "session_id": 1,
+  "hospital_id": 1,
+  "message": "Why is Hospital 1 at risk?"
+}
+```
+
+Response:
+
+```json
+{
+  "session_id": 1,
+  "hospital_id": 1,
+  "intent": "EXPLAIN_ALERT",
+  "reply": "City General Hospital is at risk: pending blood requests exceed current inventory for O- (have 2, need 4)..."
+}
+```
 
 ## Adding a new intent (modularity)
 
 1. Add a regex list to `INTENT_PATTERNS` under a new Intent ID.
-2. Add the SQL (parameterized, `SELECT`-only, `LIMIT 10`) to `INTENT_TO_SQL`.
+2. Add the parameterized SQL (`SELECT`-only, `LIMIT 10`) to `INTENT_TO_SQL`.
 3. Register a formatter in `FORMATTERS` that turns rows into a sentence.
-4. If the intent needs extra params, add a branch in `run_intent_query`.
+4. (Optional) Add the SQL string to the `SQL_TEMPLATE` table so audit logs
+   can reference it.
+
+## Migration to a non-SQLite DBMS
+
+`chatbot_backend.py` keeps the DB connection in two helpers:
+
+- `_connect_readonly(db_path)` — for answering questions
+- `_connect_readwrite(db_path)` — for chat-session logging
+
+Replace these two functions with the appropriate driver
+(`mysql.connector.connect(...)` / `psycopg2.connect(...)`), and switch
+the `?` placeholders to `%s` (single find-and-replace inside
+`INTENT_TO_SQL` and the chat-logging helpers).
